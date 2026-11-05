@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Bot House 3D — live</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #dfe7ef; font-family: Inter, system-ui, sans-serif; }
+  #scene { position: fixed; inset: 0; }
+  #hud {
+    position: fixed; left: 14px; right: 14px; top: 12px; z-index: 5;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between;
+    pointer-events: none;
+  }
+  .card {
+    pointer-events: auto;
+    background: rgba(255,252,247,.92); border: 1px solid rgba(28,25,23,.08);
+    backdrop-filter: blur(10px); border-radius: 14px; padding: 10px 14px;
+    box-shadow: 0 10px 30px rgba(28,25,23,.08);
+  }
+  h1 { margin: 0; font-size: 1.05rem; }
+  .sub { color: #78716c; font-size: .8rem; margin-top: 2px; }
+  .pill { display: inline-flex; gap: 8px; align-items: center; font-size: .82rem; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+  .dot.warn { background: #f59e0b; }
+  #panel {
+    position: fixed; right: 14px; bottom: 14px; width: min(320px, calc(100vw - 28px));
+    z-index: 5; display: none;
+  }
+  #panel.open { display: block; }
+  #panel h2 { margin: 0 0 6px; font-size: 1rem; }
+  #panel .step { color: #57534e; font-size: .86rem; line-height: 1.35; }
+  .status {
+    display: inline-block; margin-top: 8px; font-size: .72rem; font-weight: 700;
+    padding: 3px 9px; border-radius: 999px; background: #e7e5e4;
+  }
+  .status.working { background: #ccfbf1; color: #0f766e; }
+  .status.waiting_user { background: #fef3c7; color: #b45309; }
+  .status.error { background: #fee2e2; color: #b91c1c; }
+  .status.done { background: #dcfce7; color: #166534; }
+  .status.idle { background: #e7e5e4; color: #57534e; }
+  .label {
+    background: rgba(255,252,247,.9); border: 1px solid rgba(28,25,23,.1);
+    border-radius: 8px; padding: 2px 7px; font-size: 11px; font-weight: 700;
+    color: #1c1917; white-space: nowrap; transform: translate(-50%, -120%);
+    pointer-events: none; user-select: none;
+  }
+  #hint { position: fixed; left: 14px; bottom: 14px; z-index: 5; color: #57534e; font-size: .78rem; }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+<div id="hud">
+  <div class="card">
+    <h1>Bot House</h1>
+    <div class="sub">Private rooms · shared living spaces · live feed</div>
+  </div>
+  <div class="card pill"><span class="dot" id="cdot"></span><span id="clabel">Connecting…</span></div>
+</div>
+<div class="card" id="panel">
+  <h2 id="pname"></h2>
+  <div class="sub" id="proom"></div>
+  <div class="step" id="pstep"></div>
+  <div class="status" id="pstatus"></div>
+</div>
+<div id="hint" class="card">Drag to look · scroll to zoom · tap a bot</div>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
+
+const FEED = "https://ntfy.sh/" + ((location.hash||"#gbw-0mZxsJ4PdjoYngytbZirqB").slice(1) || "gbw-0mZxsJ4PdjoYngytbZirqB");
+
+const ROOMS = [
+  { id: "library", title: "Library", bot: "Archivist", x: -7.5, z: -5.5, w: 4.2, d: 3.8 },
+  { id: "study", title: "Study", bot: "Grok Bot", x: -2.5, z: -5.5, w: 4.2, d: 3.8 },
+  { id: "newsroom", title: "Newsroom", bot: "Journalist", x: 2.5, z: -5.5, w: 4.2, d: 3.8 },
+  { id: "call", title: "Call Booth", bot: "dial bot", x: 7.5, z: -5.5, w: 4.2, d: 3.8 },
+  { id: "front", title: "Front Desk", bot: "Office manager", x: -7.5, z: -0.5, w: 4.2, d: 3.8 },
+  { id: "quiet", title: "Quiet Room", bot: "Autism Doctor", x: 7.5, z: -0.5, w: 4.2, d: 3.8 },
+  { id: "nest", title: "Nest", bot: "Home Bot", x: -7.5, z: 4.5, w: 4.2, d: 3.8 },
+  { id: "studio", title: "Studio", bot: "New Bot", x: 7.5, z: 4.5, w: 4.2, d: 3.8 },
+  { id: "bargain", title: "Bargain Nook", bot: "Deal Hunting", x: -2.5, z: 4.5, w: 4.2, d: 3.8 },
+];
+const COMMON = [
+  { id: "living", title: "Living Room", x: 0, z: 0.2, w: 8.5, d: 7.2, color: 0xe8f2ec },
+  { id: "kitchen", title: "Kitchen", x: 2.5, z: 4.5, w: 4.2, d: 3.8, color: 0xf3efe6 },
+  { id: "garden", title: "Garden", x: 0, z: 8.2, w: 18.5, d: 2.6, color: 0xdcebdd },
+];
+
+const DEFAULT_ROSTER = ["Grok Bot","Archivist","Home Bot","New Bot","Autism Doctor","dial bot","Deal Hunting","Office manager","Journalist"];
+const DEFAULT_LOOKS = {"Grok Bot":{"shape":"star6","color":"#A855F7","accessory":"antenna"},"Home Bot":{"shape":"clover","color":"#16A085","accessory":"bow"},"Archivist":{"shape":"hexagon","color":"#C45C26","accessory":"glasses"},"New Bot":{"shape":"hexagon","color":"#7C4DFF","accessory":"antenna"},"dial bot":{"shape":"pill","color":"#FF5A1F","accessory":"antenna"},"Autism Doctor":{"shape":"clover","color":"#6C63FF","accessory":"glasses"},"Deal Hunting":{"shape":"star4","color":"#E85D04","accessory":"glasses"},"Journalist":{"shape":"rounded_square","color":"#D7263D","accessory":"glasses"},"Office manager":{"shape":"hexagon","color":"#E85D04","accessory":"glasses"}};
+
+const state = { roster: [...DEFAULT_ROSTER], looks: {...DEFAULT_LOOKS}, status: {}, step: {}, selected: null };
+
+const el = document.getElementById("scene");
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+el.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(innerWidth, innerHeight);
+labelRenderer.domElement.style.position = "fixed";
+labelRenderer.domElement.style.inset = "0";
+labelRenderer.domElement.style.pointerEvents = "none";
+el.appendChild(labelRenderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xdfe7ef);
+scene.fog = new THREE.Fog(0xdfe7ef, 28, 55);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 120);
+camera.position.set(16, 14, 18);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0.5, 0.5);
+controls.enableDamping = true;
+controls.maxPolarAngle = Math.PI * 0.46;
+controls.minDistance = 10;
+controls.maxDistance = 36;
+controls.update();
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
+sun.position.set(12, 18, 8);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
+sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
+scene.add(sun);
+scene.add(new THREE.HemisphereLight(0xe8f0ff, 0xc8b8a0, 0.35));
+
+const mats = {
+  floor: new THREE.MeshStandardMaterial({ color: 0xf3efe8, roughness: 0.9, metalness: 0.0 }),
+  wall: new THREE.MeshStandardMaterial({ color: 0xf7f4ee, roughness: 0.85, metalness: 0.0 }),
+  trim: new THREE.MeshStandardMaterial({ color: 0xd6d0c4, roughness: 0.7, metalness: 0.05 }),
+  desk: new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.55, metalness: 0.05 }),
+  wood: new THREE.MeshStandardMaterial({ color: 0xb08968, roughness: 0.65, metalness: 0.05 }),
+  rug: new THREE.MeshStandardMaterial({ color: 0xc7ddd0, roughness: 1, metalness: 0 }),
+  glass: new THREE.MeshStandardMaterial({ color: 0x9ec5e8, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.35 }),
+};
+
+function box(w, h, d, mat, x, y, z, cast = true) {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.04), mat);
+  m.position.set(x, y, z);
+  m.castShadow = cast;
+  m.receiveShadow = true;
+  return m;
+}
+
+const house = new THREE.Group();
+scene.add(house);
+
+// whole slab
+const slab = new THREE.Mesh(new THREE.BoxGeometry(20, 0.25, 18), mats.floor);
+slab.position.set(0, -0.125, 0.5);
+slab.receiveShadow = true;
+house.add(slab);
+
+function roomShell(r, common = false) {
+  const g = new THREE.Group();
+  g.position.set(r.x, 0, r.z);
+  const floorMat = mats.floor.clone();
+  if (r.color) floorMat.color = new THREE.Color(r.color);
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(r.w - 0.08, 0.06, r.d - 0.08), floorMat);
+  floor.position.y = 0.03;
+  floor.receiveShadow = true;
+  g.add(floor);
+
+  const wallH = common ? 1.15 : 2.15;
+  const t = 0.12;
+  const walls = [
+    [r.w, wallH, t, 0, wallH / 2, -r.d / 2],
+    [r.w, wallH, t, 0, wallH / 2, r.d / 2],
+    [t, wallH, r.d, -r.w / 2, wallH / 2, 0],
+    [t, wallH, r.d, r.w / 2, wallH / 2, 0],
+  ];
+  // door gap on +Z for private rooms facing living room
+  walls.forEach((w, i) => {
+    if (!common && i === 1) {
+      // split back/front wall with doorway in middle for walls facing center-ish
+      const gap = 1.2;
+      const side = (r.w - gap) / 2;
+      if (side > 0.3) {
+        g.add(box(side, wallH, t, mats.wall, -gap / 2 - side / 2, wallH / 2, r.d / 2));
+        g.add(box(side, wallH, t, mats.wall, gap / 2 + side / 2, wallH / 2, r.d / 2));
+        g.add(box(gap, 0.25, t, mats.trim, 0, wallH - 0.12, r.d / 2, false));
+      } else {
+        g.add(box(...w, mats.wall));
+      }
+    } else if (common && i < 2) {
+      // low half-walls / open
+      g.add(box(w[0], 0.55, w[2], mats.trim, w[3], 0.275, w[5], false));
+    } else if (!common) {
+      g.add(box(w[0], w[1], w[2], mats.wall, w[3], w[4], w[5]));
+    }
+  });
+
+  const title = document.createElement("div");
+  title.className = "label";
+  title.textContent = r.title;
+  const lab = new CSS2DObject(title);
+  lab.position.set(0, common ? 1.3 : 2.35, 0);
+  g.add(lab);
+  return g;
+}
+
+for (const r of ROOMS) house.add(roomShell(r, false));
+for (const r of COMMON) house.add(roomShell(r, true));
+
+// living rug + sofa blocks
+house.add(box(5.5, 0.05, 4.2, mats.rug, 0, 0.08, 0.2, false));
+house.add(box(3.2, 0.55, 1.1, mats.wood, 0, 0.35, 1.6));
+house.add(box(1.1, 0.55, 2.2, mats.wood, -2.2, 0.35, 0.2));
+house.add(box(1.1, 0.55, 2.2, mats.wood, 2.2, 0.35, 0.2));
+
+function makeDesk() {
+  const g = new THREE.Group();
+  g.add(box(1.35, 0.07, 0.7, mats.desk, 0, 0.72, 0));
+  g.add(box(0.08, 0.72, 0.08, mats.wood, -0.55, 0.36, -0.25));
+  g.add(box(0.08, 0.72, 0.08, mats.wood, 0.55, 0.36, -0.25));
+  g.add(box(0.08, 0.72, 0.08, mats.wood, -0.55, 0.36, 0.25));
+  g.add(box(0.08, 0.72, 0.08, mats.wood, 0.55, 0.36, 0.25));
+  g.add(box(0.7, 0.45, 0.05, mats.glass, 0, 1.05, -0.05, false));
+  return g;
+}
+
+function makeBlob(colorHex, shape) {
+  const color = new THREE.Color(colorHex || "#888888");
+  const mat = new THREE.MeshPhysicalMaterial({
+    color, roughness: 0.25, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.2,
+  });
+  let geo;
+  const s = (shape || "sphere").toLowerCase();
+  if (s.includes("pill")) geo = new RoundedBoxGeometry(0.7, 0.42, 0.42, 3, 0.18);
+  else if (s.includes("cube") || s.includes("square")) geo = new RoundedBoxGeometry(0.55, 0.55, 0.55, 3, 0.12);
+  else if (s.includes("hex") || s.includes("pent")) geo = new THREE.CylinderGeometry(0.32, 0.32, 0.55, 6);
+  else if (s.includes("star") || s.includes("clover") || s.includes("trio")) geo = new THREE.IcosahedronGeometry(0.36, 0);
+  else if (s.includes("cone") || s.includes("tri")) geo = new THREE.ConeGeometry(0.34, 0.6, 5);
+  else geo = new THREE.SphereGeometry(0.34, 28, 20);
+  const body = new THREE.Mesh(geo, mat);
+  body.castShadow = true;
+  body.position.y = 0.34;
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
+  const pupil = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.5 });
+  const g = new THREE.Group();
+  g.add(body);
+  for (const dx of [-0.1, 0.1]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), eyeMat);
+    e.position.set(dx, 0.4, 0.28);
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), pupil);
+    p.position.set(dx, 0.4, 0.34);
+    g.add(e, p);
+  }
+  return g;
+}
+
+const actors = new Map();
+function roomForBot(name) {
+  return ROOMS.find(r => r.bot === name);
+}
+
+function ensureActor(name) {
+  if (actors.has(name)) return actors.get(name);
+  const room = roomForBot(name);
+  if (!room) return null;
+  const look = state.looks[name] || {};
+  const root = new THREE.Group();
+  root.position.set(room.x, 0, room.z);
+  const desk = makeDesk();
+  desk.position.set(0, 0, -0.35);
+  root.add(desk);
+  const blob = makeBlob(look.color, look.shape);
+  blob.position.set(0, 0.72, 0.15);
+  root.add(blob);
+  const tag = document.createElement("div");
+  tag.className = "label";
+  tag.textContent = name;
+  const lab = new CSS2DObject(tag);
+  lab.position.set(0, 1.85, 0.15);
+  root.add(lab);
+  root.userData = { name, blob, bob: Math.random() * Math.PI * 2 };
+  house.add(root);
+  actors.set(name, root);
+  return root;
+}
+
+function refreshActors() {
+  for (const name of state.roster) {
+    const a = ensureActor(name);
+    if (!a) continue;
+    const look = state.looks[name] || {};
+    const st = state.status[name] || "idle";
+    // rebuild blob if look changed color roughly
+    const blob = a.userData.blob;
+    const body = blob.children[0];
+    if (body && body.material && look.color) body.material.color.set(look.color);
+    // idle bots drift toward living room
+    const room = roomForBot(name);
+    const target = (st === "idle")
+      ? new THREE.Vector3((Math.hash = Math.hash || 0), 0, 0)
+      : new THREE.Vector3(room.x, 0, room.z);
+  }
+}
+
+// place idle bots in living lounge seats
+const loungeSlots = [
+  [-1.5, 0.55, 1.35], [0, 0.55, 1.35], [1.5, 0.55, 1.35],
+  [-2.0, 0.55, 0.0], [2.0, 0.55, 0.0],
+];
+
+function layoutActors(t) {
+  const idle = [];
+  for (const name of state.roster) {
+    const a = ensureActor(name);
+    if (!a) continue;
+    const st = state.status[name] || "idle";
+    const room = roomForBot(name);
+    if (st === "idle") idle.push({ name, a, room });
+    else {
+      a.position.lerp(new THREE.Vector3(room.x, 0, room.z), 0.08);
+      a.userData.blob.position.set(0, 0.72 + (st === "working" ? Math.sin(t * 3 + a.userData.bob) * 0.03 : 0), 0.15);
+      a.userData.blob.visible = true;
+      // show desk child
+      a.children[0].visible = true;
+    }
+  }
+  idle.forEach((item, i) => {
+    const slot = loungeSlots[i % loungeSlots.length];
+    const target = new THREE.Vector3(slot[0], 0, slot[2]);
+    item.a.position.lerp(target, 0.06);
+    item.a.children[0].visible = false; // hide desk while lounging
+    item.a.userData.blob.position.set(0, slot[1] + Math.sin(t * 1.5 + item.a.userData.bob) * 0.02, 0);
+  });
+}
+
+function apply(rec) {
+  if (!rec || typeof rec !== "object") return;
+  if (Array.isArray(rec.roster)) state.roster = rec.roster;
+  if (rec.looks) Object.assign(state.looks, rec.looks);
+  if (rec.bot && rec.status) {
+    state.status[rec.bot] = rec.status;
+    state.step[rec.bot] = rec.step || "";
+  }
+}
+
+function setConn(ok, text) {
+  document.getElementById("cdot").className = "dot" + (ok ? "" : " warn");
+  document.getElementById("clabel").textContent = text;
+}
+
+function showPanel(name) {
+  const panel = document.getElementById("panel");
+  if (!name) { panel.classList.remove("open"); return; }
+  const st = state.status[name] || "idle";
+  document.getElementById("pname").textContent = name;
+  document.getElementById("proom").textContent = (roomForBot(name) || {}).title || "";
+  document.getElementById("pstep").textContent = state.step[name] || "";
+  const s = document.getElementById("pstatus");
+  s.className = "status " + st;
+  s.textContent = st === "waiting_user" ? "needs you" : st;
+  panel.classList.add("open");
+}
+
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+function onPointer(ev) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const x = (ev.clientX - rect.left) / rect.width;
+  const y = (ev.clientY - rect.top) / rect.height;
+  pointer.set(x * 2 - 1, -(y * 2 - 1));
+  raycaster.setFromCamera(pointer, camera);
+  const meshes = [];
+  actors.forEach(a => a.traverse(o => { if (o.isMesh) meshes.push(o); }));
+  const hits = raycaster.intersectObjects(meshes, false);
+  if (!hits.length) { state.selected = null; showPanel(null); return; }
+  let obj = hits[0].object;
+  while (obj && !(obj.userData && obj.userData.name)) obj = obj.parent;
+  if (obj && obj.userData && obj.userData.name) {
+    state.selected = obj.userData.name;
+    showPanel(state.selected);
+  }
+}
+renderer.domElement.addEventListener("click", onPointer);
+
+async function bootstrap() {
+  try {
+    const res = await fetch(FEED + "/json?poll=1");
+    const text = await res.text();
+    for (const line of text.split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        const wrap = JSON.parse(line);
+        if (wrap.event === "message" && wrap.message) apply(JSON.parse(wrap.message));
+      } catch {}
+    }
+    for (const n of state.roster) ensureActor(n);
+    setConn(true, "Live · synced");
+  } catch {
+    for (const n of state.roster) ensureActor(n);
+    setConn(false, "Could not load history");
+  }
+}
+function listen() {
+  const es = new EventSource(FEED + "/sse");
+  es.onopen = () => setConn(true, "Live");
+  es.onerror = () => setConn(false, "Reconnecting…");
+  es.onmessage = (ev) => {
+    try {
+      const wrap = JSON.parse(ev.data);
+      const msg = wrap.message || wrap;
+      apply(typeof msg === "string" ? JSON.parse(msg) : msg);
+      for (const n of state.roster) ensureActor(n);
+      if (state.selected) showPanel(state.selected);
+      setConn(true, "Live · " + new Date().toLocaleTimeString());
+    } catch {}
+  };
+}
+
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+  labelRenderer.setSize(innerWidth, innerHeight);
+});
+
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  layoutActors(t);
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+bootstrap().then(listen);
+animate();
+</script>
+</body>
+</html>
