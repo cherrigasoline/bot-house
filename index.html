@@ -89,14 +89,14 @@ const FEED = "https://ntfy.sh/" + TOPIC;
 
 const DEFAULT_LOOKS = {
   "Grok Bot": { shape: "star6", color: "#A855F7", accessory: "antenna" },
-  "Home Bot": { shape: "clover", color: "#16A085", accessory: "bow" },
-  "Archivist": { shape: "hexagon", color: "#C45C26", accessory: "glasses" },
-  "New Bot": { shape: "hexagon", color: "#7C4DFF", accessory: "antenna" },
-  "dial bot": { shape: "pill", color: "#FF5A1F", accessory: "antenna" },
-  "Autism Doctor": { shape: "clover", color: "#6C63FF", accessory: "glasses" },
-  "Deal Hunting": { shape: "star4", color: "#E85D04", accessory: "glasses" },
-  "Journalist": { shape: "rounded_square", color: "#D7263D", accessory: "glasses" },
-  "Office manager": { shape: "hexagon", color: "#E85D04", accessory: "glasses" },
+  "Home Bot": { shape: "capsule", color: "#16A085", accessory: "bow" },
+  "Archivist": { shape: "octahedron", color: "#C45C26", accessory: "glasses" },
+  "New Bot": { shape: "octahedron", color: "#7C4DFF", accessory: "antenna" },
+  "dial bot": { shape: "capsule", color: "#FF5A1F", accessory: "antenna" },
+  "Autism Doctor": { shape: "capsule", color: "#6C63FF", accessory: "glasses" },
+  "Deal Hunting": { shape: "octahedron", color: "#E85D04", accessory: "glasses" },
+  "Journalist": { shape: "capsule", color: "#D7263D", accessory: "glasses" },
+  "Office manager": { shape: "capsule", color: "#E85D04", accessory: "clipboard" },
 };
 
 const ROOMS = [
@@ -229,6 +229,15 @@ function desk(color = 0xb08968) {
 function decorate(theme, colorHex, g) {
   const accent = hexToInt(colorHex);
   const wood = mat(0xb08968);
+  const themeWall = {
+    library: 0xf3e6d0, study: 0xe9d5ff, news: 0x1e3a5f, call: 0xe4b84a,
+    front: 0xe07a5f, quiet: 0xd8d0f0, nest: 0xf5efe6, studio: 0x4c1d95, bargain: 0xf0c75e
+  };
+  if (themeWall[theme]) {
+    // overlay back wall accent panel
+    g.add(rbox(3.6, 1.6, 0.04, mat(themeWall[theme]), 0, 1.2, -1.82));
+  }
+
   if (theme === "library") {
     for (let i = 0; i < 3; i++) {
       const shelf = rbox(0.85, 1.7, 0.28, wood, -1.35 + i * 0.05, 0.85, -1.35);
@@ -259,6 +268,7 @@ function decorate(theme, colorHex, g) {
     g.add(rbox(0.06, 2.0, 1.4, glass, 0.8, 1.0, -0.2));
     g.add(new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12), mat(accent, { emissive: accent, emissiveIntensity: 0.5 })));
     g.children.at(-1).position.set(0, 1.85, -0.2);
+    g.add(rbox(0.7, 0.18, 0.06, mat(0xdc2626, { emissive: 0xdc2626, emissiveIntensity: 0.4 }), 0, 1.65, -0.85));
     g.add(rbox(0.35, 0.12, 0.25, mat(0x292524), 0.5, 0.9, 0.2));
   } else if (theme === "front") {
     g.add(rbox(2.4, 0.9, 0.55, mat(0xe7e5e4), 0, 0.45, 0.4));
@@ -356,7 +366,8 @@ function makeAvatar(look) {
   else if (shape.includes("hex")) mesh = new THREE.Mesh(hexGeo(), bodyMat);
   else if (shape.includes("clover")) mesh = new THREE.Mesh(cloverGeo(), bodyMat);
   else if (shape.includes("rounded") || shape.includes("square")) mesh = new THREE.Mesh(roundSquareGeo(), bodyMat);
-  else if (shape.includes("pill")) mesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.28, 6, 12), bodyMat);
+  else if (shape.includes("octa")) mesh = new THREE.Mesh(new THREE.OctahedronGeometry(0.38, 0), bodyMat);
+  else if (shape.includes("pill") || shape.includes("capsule")) mesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.28, 6, 12), bodyMat);
   else if (shape.includes("cube") || shape.includes("box")) mesh = rbox(0.55, 0.55, 0.55, bodyMat);
   else mesh = new THREE.Mesh(new THREE.SphereGeometry(0.34, 24, 18), bodyMat);
   if (mesh.geometry.type === "ExtrudeGeometry") {
@@ -387,6 +398,9 @@ function makeAvatar(look) {
     g.add(rbox(0.03, 0.28, 0.03, mat(0xd6d3d1), 0, 0.78, 0));
     const tip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), mat(color, { emissive: color, emissiveIntensity: 0.6 }));
     tip.position.set(0, 0.95, 0); g.add(tip);
+  } else if (acc.includes("clipboard")) {
+    g.add(rbox(0.22, 0.28, 0.04, mat(0x292524), 0.28, 0.35, 0.2));
+    g.add(rbox(0.18, 0.22, 0.02, mat(0xfafaf9), 0.28, 0.35, 0.23));
   } else if (acc.includes("bow")) {
     const bow = mat(0xf472b6);
     const left = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.16, 8), bow);
