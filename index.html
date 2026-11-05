@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Bot House 3D — live</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #dfe7ef; font-family: Inter, system-ui, sans-serif; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #c9daf0; font-family: Inter, system-ui, sans-serif; }
   #scene { position: fixed; inset: 0; }
   #hud {
     position: fixed; left: 14px; right: 14px; top: 12px; z-index: 5;
@@ -14,15 +14,15 @@
   }
   .card {
     pointer-events: auto;
-    background: rgba(255,252,247,.92); border: 1px solid rgba(28,25,23,.08);
+    background: rgba(255,252,247,.94); border: 1px solid rgba(28,25,23,.08);
     backdrop-filter: blur(10px); border-radius: 14px; padding: 10px 14px;
-    box-shadow: 0 10px 30px rgba(28,25,23,.08);
+    box-shadow: 0 10px 30px rgba(28,25,23,.1);
   }
-  h1 { margin: 0; font-size: 1.05rem; }
+  h1 { margin: 0; font-size: 1.05rem; letter-spacing: -.01em; }
   .sub { color: #78716c; font-size: .8rem; margin-top: 2px; }
   .pill { display: inline-flex; gap: 8px; align-items: center; font-size: .82rem; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
-  .dot.warn { background: #f59e0b; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.2); }
+  .dot.warn { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.2); }
   #panel {
     position: fixed; right: 14px; bottom: 14px; width: min(320px, calc(100vw - 28px));
     z-index: 5; display: none;
@@ -32,7 +32,7 @@
   #panel .step { color: #57534e; font-size: .86rem; line-height: 1.35; }
   .status {
     display: inline-block; margin-top: 8px; font-size: .72rem; font-weight: 700;
-    padding: 3px 9px; border-radius: 999px; background: #e7e5e4;
+    padding: 3px 9px; border-radius: 999px; background: #e7e5e4; text-transform: uppercase; letter-spacing: .04em;
   }
   .status.working { background: #ccfbf1; color: #0f766e; }
   .status.waiting_user { background: #fef3c7; color: #b45309; }
@@ -40,10 +40,16 @@
   .status.done { background: #dcfce7; color: #166534; }
   .status.idle { background: #e7e5e4; color: #57534e; }
   .label {
-    background: rgba(255,252,247,.9); border: 1px solid rgba(28,25,23,.1);
-    border-radius: 8px; padding: 2px 7px; font-size: 11px; font-weight: 700;
-    color: #1c1917; white-space: nowrap; transform: translate(-50%, -120%);
-    pointer-events: none; user-select: none;
+    background: rgba(255,252,247,.95); border: 1px solid rgba(28,25,23,.12);
+    border-radius: 999px; padding: 3px 9px; font-size: 11px; font-weight: 700;
+    color: #1c1917; white-space: nowrap; transform: translate(-50%, -130%);
+    pointer-events: none; user-select: none; box-shadow: 0 4px 12px rgba(0,0,0,.08);
+  }
+  .label.dim { opacity: .35; }
+  .rlabel {
+    background: rgba(255,255,255,.55); border: 0; border-radius: 6px; padding: 2px 6px;
+    font-size: 10px; font-weight: 700; color: #44403c; letter-spacing: .02em;
+    transform: translate(-50%, -50%); pointer-events: none;
   }
   #hint { position: fixed; left: 14px; bottom: 14px; z-index: 5; color: #57534e; font-size: .78rem; }
 </style>
@@ -78,36 +84,52 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 
-const FEED = "https://ntfy.sh/" + ((location.hash||"#gbw-0mZxsJ4PdjoYngytbZirqB").slice(1) || "gbw-0mZxsJ4PdjoYngytbZirqB");
+const TOPIC = (location.hash || "#gbw-0mZxsJ4PdjoYngytbZirqB").slice(1) || "gbw-0mZxsJ4PdjoYngytbZirqB";
+const FEED = "https://ntfy.sh/" + TOPIC;
+
+const DEFAULT_LOOKS = {
+  "Grok Bot": { shape: "star6", color: "#A855F7", accessory: "antenna" },
+  "Home Bot": { shape: "clover", color: "#16A085", accessory: "bow" },
+  "Archivist": { shape: "hexagon", color: "#C45C26", accessory: "glasses" },
+  "New Bot": { shape: "hexagon", color: "#7C4DFF", accessory: "antenna" },
+  "dial bot": { shape: "pill", color: "#FF5A1F", accessory: "antenna" },
+  "Autism Doctor": { shape: "clover", color: "#6C63FF", accessory: "glasses" },
+  "Deal Hunting": { shape: "star4", color: "#E85D04", accessory: "glasses" },
+  "Journalist": { shape: "rounded_square", color: "#D7263D", accessory: "glasses" },
+  "Office manager": { shape: "hexagon", color: "#E85D04", accessory: "glasses" },
+};
 
 const ROOMS = [
-  { id: "library", title: "Library", bot: "Archivist", x: -7.5, z: -5.5, w: 4.2, d: 3.8 },
-  { id: "study", title: "Study", bot: "Grok Bot", x: -2.5, z: -5.5, w: 4.2, d: 3.8 },
-  { id: "newsroom", title: "Newsroom", bot: "Journalist", x: 2.5, z: -5.5, w: 4.2, d: 3.8 },
-  { id: "call", title: "Call Booth", bot: "dial bot", x: 7.5, z: -5.5, w: 4.2, d: 3.8 },
-  { id: "front", title: "Front Desk", bot: "Office manager", x: -7.5, z: -0.5, w: 4.2, d: 3.8 },
-  { id: "quiet", title: "Quiet Room", bot: "Autism Doctor", x: 7.5, z: -0.5, w: 4.2, d: 3.8 },
-  { id: "nest", title: "Nest", bot: "Home Bot", x: -7.5, z: 4.5, w: 4.2, d: 3.8 },
-  { id: "studio", title: "Studio", bot: "New Bot", x: 7.5, z: 4.5, w: 4.2, d: 3.8 },
-  { id: "bargain", title: "Bargain Nook", bot: "Deal Hunting", x: -2.5, z: 4.5, w: 4.2, d: 3.8 },
+  { id: "library", title: "Library", bot: "Archivist", x: -7.5, z: -5.5, w: 4.2, d: 3.8, theme: "library" },
+  { id: "study", title: "Study", bot: "Grok Bot", x: -2.5, z: -5.5, w: 4.2, d: 3.8, theme: "study" },
+  { id: "newsroom", title: "Newsroom", bot: "Journalist", x: 2.5, z: -5.5, w: 4.2, d: 3.8, theme: "news" },
+  { id: "call", title: "Call Booth", bot: "dial bot", x: 7.5, z: -5.5, w: 4.2, d: 3.8, theme: "call" },
+  { id: "front", title: "Front Desk", bot: "Office manager", x: -7.5, z: -0.5, w: 4.2, d: 3.8, theme: "front" },
+  { id: "quiet", title: "Quiet Room", bot: "Autism Doctor", x: 7.5, z: -0.5, w: 4.2, d: 3.8, theme: "quiet" },
+  { id: "nest", title: "Nest", bot: "Home Bot", x: -7.5, z: 4.5, w: 4.2, d: 3.8, theme: "nest" },
+  { id: "studio", title: "Studio", bot: "New Bot", x: 7.5, z: 4.5, w: 4.2, d: 3.8, theme: "studio" },
+  { id: "bargain", title: "Bargain Nook", bot: "Deal Hunting", x: -2.5, z: 4.5, w: 4.2, d: 3.8, theme: "bargain" },
 ];
 const COMMON = [
   { id: "living", title: "Living Room", x: 0, z: 0.2, w: 8.5, d: 7.2, color: 0xe8f2ec },
-  { id: "kitchen", title: "Kitchen", x: 2.5, z: 4.5, w: 4.2, d: 3.8, color: 0xf3efe6 },
+  { id: "kitchen", title: "Kitchen", x: 2.5, z: 4.5, w: 4.2, d: 3.8, color: 0xf8f1e3 },
   { id: "garden", title: "Garden", x: 0, z: 8.2, w: 18.5, d: 2.6, color: 0xdcebdd },
 ];
+const DEFAULT_ROSTER = ROOMS.map(r => r.bot);
 
-const DEFAULT_ROSTER = ["Grok Bot","Archivist","Home Bot","New Bot","Autism Doctor","dial bot","Deal Hunting","Office manager","Journalist"];
-const DEFAULT_LOOKS = {"Grok Bot":{"shape":"star6","color":"#A855F7","accessory":"antenna"},"Home Bot":{"shape":"clover","color":"#16A085","accessory":"bow"},"Archivist":{"shape":"hexagon","color":"#C45C26","accessory":"glasses"},"New Bot":{"shape":"hexagon","color":"#7C4DFF","accessory":"antenna"},"dial bot":{"shape":"pill","color":"#FF5A1F","accessory":"antenna"},"Autism Doctor":{"shape":"clover","color":"#6C63FF","accessory":"glasses"},"Deal Hunting":{"shape":"star4","color":"#E85D04","accessory":"glasses"},"Journalist":{"shape":"rounded_square","color":"#D7263D","accessory":"glasses"},"Office manager":{"shape":"hexagon","color":"#E85D04","accessory":"glasses"}};
-
-const state = { roster: [...DEFAULT_ROSTER], looks: {...DEFAULT_LOOKS}, status: {}, step: {}, selected: null };
+const state = {
+  roster: [...DEFAULT_ROSTER],
+  looks: { ...DEFAULT_LOOKS },
+  status: {},
+  step: {},
+  roomDecor: {},
+  selected: null,
+};
 
 const el = document.getElementById("scene");
-const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false, powerPreference: "low-power" });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 1.75));
 renderer.setSize(innerWidth, innerHeight);
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 el.appendChild(renderer.domElement);
 
@@ -119,231 +141,382 @@ labelRenderer.domElement.style.pointerEvents = "none";
 el.appendChild(labelRenderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xdfe7ef);
-scene.fog = new THREE.Fog(0xdfe7ef, 28, 55);
+scene.background = new THREE.Color(0xc9daf0);
+scene.fog = new THREE.Fog(0xc9daf0, 32, 60);
 
 const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 120);
-camera.position.set(16, 14, 18);
+camera.position.set(17, 15, 19);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 0.5, 0.5);
+controls.target.set(0, 0.4, 0.8);
 controls.enableDamping = true;
 controls.maxPolarAngle = Math.PI * 0.46;
 controls.minDistance = 10;
-controls.maxDistance = 36;
+controls.maxDistance = 38;
 controls.update();
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.7));
-const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);
-sun.position.set(12, 18, 8);
-sun.castShadow = true;
-sun.shadow.mapSize.set(2048, 2048);
-sun.shadow.camera.left = -20; sun.shadow.camera.right = 20;
-sun.shadow.camera.top = 20; sun.shadow.camera.bottom = -20;
+scene.add(new THREE.AmbientLight(0xffffff, 0.78));
+scene.add(new THREE.HemisphereLight(0xeaf2ff, 0xc9b79a, 0.45));
+const sun = new THREE.DirectionalLight(0xfff1dc, 0.95);
+sun.position.set(10, 16, 6);
 scene.add(sun);
-scene.add(new THREE.HemisphereLight(0xe8f0ff, 0xc8b8a0, 0.35));
 
-const mats = {
-  floor: new THREE.MeshStandardMaterial({ color: 0xf3efe8, roughness: 0.9, metalness: 0.0 }),
-  wall: new THREE.MeshStandardMaterial({ color: 0xf7f4ee, roughness: 0.85, metalness: 0.0 }),
-  trim: new THREE.MeshStandardMaterial({ color: 0xd6d0c4, roughness: 0.7, metalness: 0.05 }),
-  desk: new THREE.MeshStandardMaterial({ color: 0xf6f3ec, roughness: 0.55, metalness: 0.05 }),
-  wood: new THREE.MeshStandardMaterial({ color: 0xb08968, roughness: 0.65, metalness: 0.05 }),
-  rug: new THREE.MeshStandardMaterial({ color: 0xc7ddd0, roughness: 1, metalness: 0 }),
-  glass: new THREE.MeshStandardMaterial({ color: 0x9ec5e8, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.35 }),
-};
-
-function box(w, h, d, mat, x, y, z, cast = true) {
-  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, 0.04), mat);
+function hexToInt(hex, fallback = 0x888888) {
+  if (!hex) return fallback;
+  const n = parseInt(String(hex).replace("#", ""), 16);
+  return Number.isFinite(n) ? n : fallback;
+}
+function pastel(hex, mix = 0.72) {
+  const c = new THREE.Color(hexToInt(hex));
+  return c.lerp(new THREE.Color(0xffffff), mix);
+}
+function deep(hex, mix = 0.35) {
+  const c = new THREE.Color(hexToInt(hex));
+  return c.lerp(new THREE.Color(0x1c1917), mix);
+}
+function mat(color, opts = {}) {
+  return new THREE.MeshStandardMaterial({ color, roughness: opts.roughness ?? 0.85, metalness: opts.metalness ?? 0, emissive: opts.emissive ?? 0x000000, emissiveIntensity: opts.emissiveIntensity ?? 0, transparent: !!opts.opacity, opacity: opts.opacity ?? 1 });
+}
+function rbox(w, h, d, material, x = 0, y = 0, z = 0) {
+  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, 2, Math.min(0.06, Math.min(w, h, d) * 0.12)), material);
   m.position.set(x, y, z);
-  m.castShadow = cast;
-  m.receiveShadow = true;
   return m;
 }
 
 const house = new THREE.Group();
 scene.add(house);
 
-// whole slab
-const slab = new THREE.Mesh(new THREE.BoxGeometry(20, 0.25, 18), mats.floor);
-slab.position.set(0, -0.125, 0.5);
-slab.receiveShadow = true;
+const slab = new THREE.Mesh(new THREE.BoxGeometry(20.5, 0.22, 18.5), mat(0xf4efe6));
+slab.position.set(0, -0.11, 0.6);
 house.add(slab);
 
-function roomShell(r, common = false) {
+function roomLabel(title, x, y, z) {
+  const d = document.createElement("div");
+  d.className = "rlabel";
+  d.textContent = title;
+  const o = new CSS2DObject(d);
+  o.position.set(x, y, z);
+  return o;
+}
+
+function addWalls(g, w, d, wallH, wallMat, door = true) {
+  const t = 0.11;
+  g.add(rbox(w, wallH, t, wallMat, 0, wallH / 2, -d / 2));
+  g.add(rbox(t, wallH, d, wallMat, -w / 2, wallH / 2, 0));
+  g.add(rbox(t, wallH, d, wallMat, w / 2, wallH / 2, 0));
+  if (door) {
+    const gap = 1.25;
+    const side = (w - gap) / 2;
+    if (side > 0.25) {
+      g.add(rbox(side, wallH, t, wallMat, -gap / 2 - side / 2, wallH / 2, d / 2));
+      g.add(rbox(side, wallH, t, wallMat, gap / 2 + side / 2, wallH / 2, d / 2));
+    }
+  } else {
+    g.add(rbox(w, wallH, t, wallMat, 0, wallH / 2, d / 2));
+  }
+}
+
+function desk(color = 0xb08968) {
+  const g = new THREE.Group();
+  g.add(rbox(1.35, 0.08, 0.7, mat(color), 0, 0.72, 0));
+  g.add(rbox(0.08, 0.72, 0.08, mat(0x7a5c45), -0.55, 0.36, -0.25));
+  g.add(rbox(0.08, 0.72, 0.08, mat(0x7a5c45), 0.55, 0.36, -0.25));
+  g.add(rbox(0.08, 0.72, 0.08, mat(0x7a5c45), -0.55, 0.36, 0.25));
+  g.add(rbox(0.08, 0.72, 0.08, mat(0x7a5c45), 0.55, 0.36, 0.25));
+  return g;
+}
+
+function decorate(theme, colorHex, g) {
+  const accent = hexToInt(colorHex);
+  const wood = mat(0xb08968);
+  if (theme === "library") {
+    for (let i = 0; i < 3; i++) {
+      const shelf = rbox(0.85, 1.7, 0.28, wood, -1.35 + i * 0.05, 0.85, -1.35);
+      g.add(shelf);
+      for (let b = 0; b < 5; b++) g.add(rbox(0.12, 0.28, 0.22, mat([0xc45c26, 0x8b4513, 0x2f5d50, 0x4a5568, 0xd4a373][b]), -1.55 + b * 0.16, 0.55 + (i % 2) * 0.55, -1.35));
+    }
+    g.add(rbox(0.12, 0.9, 0.12, mat(0xd6d3d1), 1.2, 0.45, -0.9));
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 12, 12), mat(0xfde68a, { emissive: 0xfbbf24, emissiveIntensity: 0.35 })));
+    g.children.at(-1).position.set(1.2, 1.0, -0.9);
+  } else if (theme === "study") {
+    g.add(rbox(1.6, 1.1, 0.06, mat(accent, { emissive: accent, emissiveIntensity: 0.25 }), 0, 1.3, -1.55));
+    const d = desk(0x7c3aed); d.position.set(0, 0, -0.2); g.add(d);
+    for (let i = 0; i < 5; i++) {
+      const star = new THREE.Mesh(starGeo(5, 0.12, 0.05), mat(0xf5d0fe, { emissive: 0xa855f7, emissiveIntensity: 0.4 }));
+      star.position.set(-1.2 + i * 0.55, 1.7, -1.5); g.add(star);
+    }
+  } else if (theme === "news") {
+    g.add(rbox(1.8, 1.0, 0.05, mat(0xd2b48c), 0, 1.25, -1.55));
+    for (let i = 0; i < 6; i++) g.add(rbox(0.28, 0.22, 0.02, mat(0xfef3c7), -0.7 + (i % 3) * 0.5, 1.45 - Math.floor(i / 3) * 0.35, -1.52));
+    const d = desk(0x8b5e3c); d.position.set(0.2, 0, 0); g.add(d);
+    g.add(rbox(0.35, 0.18, 0.28, mat(0x44403c), 0.2, 0.86, 0.05));
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.25, 10), mat(0xd7263d)));
+    g.children.at(-1).position.set(0.85, 0.9, -0.1);
+  } else if (theme === "call") {
+    const glass = mat(0x7dd3fc, { opacity: 0.28, roughness: 0.2, metalness: 0.1 });
+    g.add(rbox(1.6, 2.0, 0.06, glass, 0, 1.0, -0.9));
+    g.add(rbox(0.06, 2.0, 1.4, glass, -0.8, 1.0, -0.2));
+    g.add(rbox(0.06, 2.0, 1.4, glass, 0.8, 1.0, -0.2));
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 12), mat(accent, { emissive: accent, emissiveIntensity: 0.5 })));
+    g.children.at(-1).position.set(0, 1.85, -0.2);
+    g.add(rbox(0.35, 0.12, 0.25, mat(0x292524), 0.5, 0.9, 0.2));
+  } else if (theme === "front") {
+    g.add(rbox(2.4, 0.9, 0.55, mat(0xe7e5e4), 0, 0.45, 0.4));
+    g.add(rbox(2.4, 0.08, 0.7, wood, 0, 0.92, 0.35));
+    g.add(rbox(0.35, 0.12, 0.28, mat(0xfef3c7), -0.6, 1.02, 0.35));
+    g.add(rbox(0.35, 0.12, 0.28, mat(0xdbeafe), -0.15, 1.02, 0.35));
+    const clock = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.06, 24), mat(0xfff7ed));
+    clock.rotation.x = Math.PI / 2; clock.position.set(1.1, 1.5, -1.5); g.add(clock);
+  } else if (theme === "quiet") {
+    g.add(rbox(1.6, 0.45, 0.7, mat(0xc4b5fd), 0, 0.28, 0.3));
+    g.add(rbox(1.6, 0.35, 0.25, mat(0xa78bfa), 0, 0.55, 0.55));
+    g.add(rbox(0.08, 1.1, 0.08, mat(0xd6d3d1), -1.2, 0.55, -1.0));
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 12), mat(0xfde68a, { emissive: 0xfbbf24, emissiveIntensity: 0.25 })));
+    g.children.at(-1).position.set(-1.2, 1.2, -1.0);
+    g.add(rbox(0.35, 0.35, 0.35, mat(0x818cf8), 1.1, 0.25, -0.8));
+  } else if (theme === "nest") {
+    g.add(rbox(1.5, 0.35, 0.9, mat(0xf5d0c5), -0.3, 0.25, 0.2));
+    g.add(rbox(0.45, 0.25, 0.7, mat(0xfda4af), -0.85, 0.45, 0.2));
+    for (const px of [-1.3, 1.2]) {
+      g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 0.25, 10), mat(0xd6d3d1)));
+      g.children.at(-1).position.set(px, 0.15, -1.1);
+      const leaf = new THREE.Mesh(new THREE.SphereGeometry(0.28, 10, 10), mat(0x16a085));
+      leaf.position.set(px, 0.5, -1.1); g.add(leaf);
+    }
+    g.add(rbox(0.16, 0.14, 0.16, mat(0xfef3c7), 0.7, 0.85, 0.1));
+  } else if (theme === "studio") {
+    g.add(rbox(0.08, 1.3, 0.08, mat(0xa8a29e), -1.0, 0.65, -0.9));
+    g.add(rbox(0.7, 0.9, 0.05, mat(0xfafaf9), -1.0, 1.1, -0.9));
+    g.add(rbox(1.8, 0.08, 0.08, mat(accent, { emissive: accent, emissiveIntensity: 0.55 }), 0, 1.85, -1.5));
+    for (const [cx, col] of [[0.6, 0xf472b6], [0.95, 0x22d3ee], [1.25, 0xfacc15]]) {
+      const splat = new THREE.Mesh(new THREE.CircleGeometry(0.14, 10), mat(col));
+      splat.rotation.x = -Math.PI / 2; splat.position.set(cx, 0.05, 0.5); g.add(splat);
+    }
+    const d = desk(0x6d28d9); d.position.set(0.5, 0, 0); g.add(d);
+  } else if (theme === "bargain") {
+    g.add(rbox(1.8, 1.2, 0.3, wood, 0, 0.7, -1.3));
+    for (let i = 0; i < 4; i++) g.add(rbox(0.28, 0.28, 0.28, mat([0xfb923c, 0xfef3c7, 0xfdba74, 0xea580c][i]), -0.7 + i * 0.4, 0.9, -1.3));
+    const banner = rbox(1.6, 0.28, 0.04, mat(0xea580c), 0, 1.7, -1.5); g.add(banner);
+    for (let i = 0; i < 3; i++) {
+      const tag = rbox(0.28, 0.18, 0.02, mat(0xfef08a), -0.7 + i * 0.55, 1.35, -0.9);
+      g.add(tag);
+    }
+  }
+}
+
+function starGeo(points, outer, inner) {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < points * 2; i++) {
+    const r = i % 2 === 0 ? outer : inner;
+    const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+    const x = Math.cos(a) * r, y = Math.sin(a) * r;
+    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, { depth: 0.22, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 1 });
+}
+function hexGeo() {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const x = Math.cos(a) * 0.34, y = Math.sin(a) * 0.34;
+    if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+  }
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, { depth: 0.28, bevelEnabled: true, bevelThickness: 0.02, bevelSize: 0.02, bevelSegments: 1 });
+}
+function cloverGeo() {
+  const shape = new THREE.Shape();
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 - Math.PI / 2;
+    const cx = Math.cos(a) * 0.16, cy = Math.sin(a) * 0.16;
+    shape.absarc(cx, cy, 0.18, 0, Math.PI * 2, false);
+  }
+  return new THREE.ExtrudeGeometry(shape, { depth: 0.22, bevelEnabled: false });
+}
+function roundSquareGeo() {
+  const shape = new THREE.Shape();
+  const r = 0.08, s = 0.28;
+  shape.moveTo(-s + r, -s);
+  shape.lineTo(s - r, -s); shape.quadraticCurveTo(s, -s, s, -s + r);
+  shape.lineTo(s, s - r); shape.quadraticCurveTo(s, s, s - r, s);
+  shape.lineTo(-s + r, s); shape.quadraticCurveTo(-s, s, -s, s - r);
+  shape.lineTo(-s, -s + r); shape.quadraticCurveTo(-s, -s, -s + r, -s);
+  return new THREE.ExtrudeGeometry(shape, { depth: 0.26, bevelEnabled: false });
+}
+
+function makeAvatar(look) {
+  const color = hexToInt(look.color, 0x888888);
+  const bodyMat = mat(color, { roughness: 0.45, metalness: 0.08, emissive: color, emissiveIntensity: 0.12 });
+  const g = new THREE.Group();
+  let mesh;
+  const shape = (look.shape || "sphere").toLowerCase();
+  if (shape.includes("star6")) mesh = new THREE.Mesh(starGeo(6, 0.38, 0.16), bodyMat);
+  else if (shape.includes("star4") || shape === "star") mesh = new THREE.Mesh(starGeo(4, 0.38, 0.16), bodyMat);
+  else if (shape.includes("hex")) mesh = new THREE.Mesh(hexGeo(), bodyMat);
+  else if (shape.includes("clover")) mesh = new THREE.Mesh(cloverGeo(), bodyMat);
+  else if (shape.includes("rounded") || shape.includes("square")) mesh = new THREE.Mesh(roundSquareGeo(), bodyMat);
+  else if (shape.includes("pill")) mesh = new THREE.Mesh(new THREE.CapsuleGeometry(0.26, 0.28, 6, 12), bodyMat);
+  else if (shape.includes("cube") || shape.includes("box")) mesh = rbox(0.55, 0.55, 0.55, bodyMat);
+  else mesh = new THREE.Mesh(new THREE.SphereGeometry(0.34, 24, 18), bodyMat);
+  if (mesh.geometry.type === "ExtrudeGeometry") {
+    mesh.geometry.center();
+    mesh.rotation.x = -Math.PI / 2;
+  }
+  mesh.position.y = 0.38;
+  g.add(mesh);
+
+  const eyeMat = mat(0xffffff, { roughness: 0.35 });
+  const pupil = mat(0x1c1917);
+  for (const dx of [-0.1, 0.1]) {
+    const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 10, 10), eyeMat);
+    e.position.set(dx, 0.42, 0.28); g.add(e);
+    const p = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), pupil);
+    p.position.set(dx, 0.42, 0.34); g.add(p);
+  }
+
+  const acc = (look.accessory || "none").toLowerCase();
+  if (acc.includes("glass")) {
+    const rim = mat(0x1c1917, { metalness: 0.4, roughness: 0.4 });
+    for (const dx of [-0.11, 0.11]) {
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.08, 0.015, 6, 16), rim);
+      ring.position.set(dx, 0.42, 0.3); g.add(ring);
+    }
+    g.add(rbox(0.08, 0.02, 0.02, rim, 0, 0.42, 0.3));
+  } else if (acc.includes("antenna")) {
+    g.add(rbox(0.03, 0.28, 0.03, mat(0xd6d3d1), 0, 0.78, 0));
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), mat(color, { emissive: color, emissiveIntensity: 0.6 }));
+    tip.position.set(0, 0.95, 0); g.add(tip);
+  } else if (acc.includes("bow")) {
+    const bow = mat(0xf472b6);
+    const left = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.16, 8), bow);
+    left.rotation.z = Math.PI / 2; left.position.set(-0.12, 0.7, 0.05); g.add(left);
+    const right = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.16, 8), bow);
+    right.rotation.z = -Math.PI / 2; right.position.set(0.12, 0.7, 0.05); g.add(right);
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 8, 8), mat(0xfb7185)));
+    g.children.at(-1).position.set(0, 0.7, 0.05);
+  }
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.28, 0.035, 8, 24), mat(0x22c55e, { emissive: 0x22c55e, emissiveIntensity: 0.35 }));
+  ring.rotation.x = Math.PI / 2; ring.position.y = 0.04; g.add(ring);
+  g.userData.ring = ring;
+  return g;
+}
+
+// Build rooms
+for (const r of ROOMS) {
+  const look = state.looks[r.bot] || { color: "#888888" };
   const g = new THREE.Group();
   g.position.set(r.x, 0, r.z);
-  const floorMat = mats.floor.clone();
-  if (r.color) floorMat.color = new THREE.Color(r.color);
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(r.w - 0.08, 0.06, r.d - 0.08), floorMat);
-  floor.position.y = 0.03;
-  floor.receiveShadow = true;
-  g.add(floor);
-
-  const wallH = common ? 1.15 : 2.15;
-  const t = 0.12;
-  const walls = [
-    [r.w, wallH, t, 0, wallH / 2, -r.d / 2],
-    [r.w, wallH, t, 0, wallH / 2, r.d / 2],
-    [t, wallH, r.d, -r.w / 2, wallH / 2, 0],
-    [t, wallH, r.d, r.w / 2, wallH / 2, 0],
-  ];
-  // door gap on +Z for private rooms facing living room
-  walls.forEach((w, i) => {
-    if (!common && i === 1) {
-      // split back/front wall with doorway in middle for walls facing center-ish
-      const gap = 1.2;
-      const side = (r.w - gap) / 2;
-      if (side > 0.3) {
-        g.add(box(side, wallH, t, mats.wall, -gap / 2 - side / 2, wallH / 2, r.d / 2));
-        g.add(box(side, wallH, t, mats.wall, gap / 2 + side / 2, wallH / 2, r.d / 2));
-        g.add(box(gap, 0.25, t, mats.trim, 0, wallH - 0.12, r.d / 2, false));
-      } else {
-        g.add(box(...w, mats.wall));
-      }
-    } else if (common && i < 2) {
-      // low half-walls / open
-      g.add(box(w[0], 0.55, w[2], mats.trim, w[3], 0.275, w[5], false));
-    } else if (!common) {
-      g.add(box(w[0], w[1], w[2], mats.wall, w[3], w[4], w[5]));
-    }
-  });
-
-  const title = document.createElement("div");
-  title.className = "label";
-  title.textContent = r.title;
-  const lab = new CSS2DObject(title);
-  lab.position.set(0, common ? 1.3 : 2.35, 0);
-  g.add(lab);
-  return g;
-}
-
-for (const r of ROOMS) house.add(roomShell(r, false));
-for (const r of COMMON) house.add(roomShell(r, true));
-
-// living rug + sofa blocks
-house.add(box(5.5, 0.05, 4.2, mats.rug, 0, 0.08, 0.2, false));
-house.add(box(3.2, 0.55, 1.1, mats.wood, 0, 0.35, 1.6));
-house.add(box(1.1, 0.55, 2.2, mats.wood, -2.2, 0.35, 0.2));
-house.add(box(1.1, 0.55, 2.2, mats.wood, 2.2, 0.35, 0.2));
-
-function makeDesk() {
-  const g = new THREE.Group();
-  g.add(box(1.35, 0.07, 0.7, mats.desk, 0, 0.72, 0));
-  g.add(box(0.08, 0.72, 0.08, mats.wood, -0.55, 0.36, -0.25));
-  g.add(box(0.08, 0.72, 0.08, mats.wood, 0.55, 0.36, -0.25));
-  g.add(box(0.08, 0.72, 0.08, mats.wood, -0.55, 0.36, 0.25));
-  g.add(box(0.08, 0.72, 0.08, mats.wood, 0.55, 0.36, 0.25));
-  g.add(box(0.7, 0.45, 0.05, mats.glass, 0, 1.05, -0.05, false));
-  return g;
-}
-
-function makeBlob(colorHex, shape) {
-  const color = new THREE.Color(colorHex || "#888888");
-  const mat = new THREE.MeshPhysicalMaterial({
-    color, roughness: 0.25, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.2,
-  });
-  let geo;
-  const s = (shape || "sphere").toLowerCase();
-  if (s.includes("pill")) geo = new RoundedBoxGeometry(0.7, 0.42, 0.42, 3, 0.18);
-  else if (s.includes("cube") || s.includes("square")) geo = new RoundedBoxGeometry(0.55, 0.55, 0.55, 3, 0.12);
-  else if (s.includes("hex") || s.includes("pent")) geo = new THREE.CylinderGeometry(0.32, 0.32, 0.55, 6);
-  else if (s.includes("star") || s.includes("clover") || s.includes("trio")) geo = new THREE.IcosahedronGeometry(0.36, 0);
-  else if (s.includes("cone") || s.includes("tri")) geo = new THREE.ConeGeometry(0.34, 0.6, 5);
-  else geo = new THREE.SphereGeometry(0.34, 28, 20);
-  const body = new THREE.Mesh(geo, mat);
-  body.castShadow = true;
-  body.position.y = 0.34;
-  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 });
-  const pupil = new THREE.MeshStandardMaterial({ color: 0x1c1917, roughness: 0.5 });
-  const g = new THREE.Group();
-  g.add(body);
-  for (const dx of [-0.1, 0.1]) {
-    const e = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), eyeMat);
-    e.position.set(dx, 0.4, 0.28);
-    const p = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 8), pupil);
-    p.position.set(dx, 0.4, 0.34);
-    g.add(e, p);
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(r.w - 0.1, 0.05, r.d - 0.1), mat(pastel(look.color, 0.82)));
+  floor.position.y = 0.03; g.add(floor);
+  addWalls(g, r.w, r.d, 2.1, mat(pastel(look.color, 0.7)));
+  decorate(r.theme, look.color, g);
+  // default desk if theme didn't add one
+  if (!["front", "quiet", "nest", "call"].includes(r.theme)) {
+    // already added in some themes; skip duplicates by checking child count loosely — add small side table
   }
-  return g;
+  if (["library", "front", "quiet", "nest", "call", "bargain"].includes(r.theme)) {
+    const d = desk(); d.position.set(0.15, 0, 0.15); g.add(d);
+  }
+  g.add(roomLabel(r.title, 0, 0.08, 0));
+  house.add(g);
+}
+for (const r of COMMON) {
+  const g = new THREE.Group();
+  g.position.set(r.x, 0, r.z);
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(r.w - 0.1, 0.05, r.d - 0.1), mat(r.color));
+  floor.position.y = 0.03; g.add(floor);
+  if (r.id !== "garden") addWalls(g, r.w, r.d, 1.15, mat(0xf7f4ee), false);
+  if (r.id === "living") {
+    g.add(rbox(2.6, 0.45, 0.9, mat(0x86efac), 0, 0.28, 1.5));
+    g.add(rbox(2.6, 0.35, 0.28, mat(0x4ade80), 0, 0.55, 1.85));
+    g.add(rbox(1.4, 0.08, 0.8, mat(0xd6d3d1), 0, 0.35, 0.3));
+    g.add(new THREE.Mesh(new THREE.CircleGeometry(1.6, 24), mat(0xbbf7d0)));
+    g.children.at(-1).rotation.x = -Math.PI / 2; g.children.at(-1).position.set(0, 0.04, 0.6);
+  } else if (r.id === "kitchen") {
+    g.add(rbox(2.2, 0.85, 0.55, mat(0xe7e5e4), 0, 0.42, -1.2));
+    g.add(rbox(0.7, 1.4, 0.55, mat(0xcbd5e1), 1.2, 0.7, 0.5));
+  } else if (r.id === "garden") {
+    for (let i = 0; i < 5; i++) {
+      const tree = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.9, 8), mat(0x16a34a));
+      tree.position.set(-6 + i * 3, 0.55, 0.2); g.add(tree);
+      g.add(rbox(0.12, 0.35, 0.12, mat(0x7c4a2d), -6 + i * 3, 0.15, 0.2));
+    }
+    for (let i = 0; i < 10; i++) {
+      const f = new THREE.Mesh(new THREE.CircleGeometry(0.1, 8), mat([0xf472b6, 0xfacc15, 0x60a5fa, 0xf97316][i % 4]));
+      f.rotation.x = -Math.PI / 2; f.position.set(-7 + i * 1.5, 0.06, (i % 2) * 0.6 - 0.2); g.add(f);
+    }
+  }
+  g.add(roomLabel(r.title, 0, 0.08, 0));
+  house.add(g);
 }
 
 const actors = new Map();
-function roomForBot(name) {
-  return ROOMS.find(r => r.bot === name);
+function roomForBot(name) { return ROOMS.find(r => r.bot === name); }
+
+function statusColor(st) {
+  return ({ working: 0x14b8a6, waiting_user: 0xf59e0b, error: 0xef4444, done: 0x22c55e, idle: 0xa8a29e })[st] || 0xa8a29e;
 }
 
 function ensureActor(name) {
   if (actors.has(name)) return actors.get(name);
   const room = roomForBot(name);
   if (!room) return null;
-  const look = state.looks[name] || {};
+  const look = state.looks[name] || DEFAULT_LOOKS[name] || { shape: "sphere", color: "#888888", accessory: "none" };
   const root = new THREE.Group();
   root.position.set(room.x, 0, room.z);
-  const desk = makeDesk();
-  desk.position.set(0, 0, -0.35);
-  root.add(desk);
-  const blob = makeBlob(look.color, look.shape);
-  blob.position.set(0, 0.72, 0.15);
-  root.add(blob);
+  const avatar = makeAvatar(look);
+  avatar.position.set(0, 0.78, 0.2);
+  root.add(avatar);
   const tag = document.createElement("div");
   tag.className = "label";
   tag.textContent = name;
   const lab = new CSS2DObject(tag);
-  lab.position.set(0, 1.85, 0.15);
+  lab.position.set(0, 2.05, 0.2);
   root.add(lab);
-  root.userData = { name, blob, bob: Math.random() * Math.PI * 2 };
+  root.userData = { name, avatar, labelEl: tag, bob: Math.random() * Math.PI * 2, lookKey: JSON.stringify(look) };
   house.add(root);
   actors.set(name, root);
   return root;
 }
 
-function refreshActors() {
-  for (const name of state.roster) {
-    const a = ensureActor(name);
-    if (!a) continue;
-    const look = state.looks[name] || {};
-    const st = state.status[name] || "idle";
-    // rebuild blob if look changed color roughly
-    const blob = a.userData.blob;
-    const body = blob.children[0];
-    if (body && body.material && look.color) body.material.color.set(look.color);
-    // idle bots drift toward living room
-    const room = roomForBot(name);
-    const target = (st === "idle")
-      ? new THREE.Vector3((Math.hash = Math.hash || 0), 0, 0)
-      : new THREE.Vector3(room.x, 0, room.z);
-  }
+function rebuildActor(name) {
+  const old = actors.get(name);
+  if (old) { house.remove(old); actors.delete(name); }
+  return ensureActor(name);
 }
 
-// place idle bots in living lounge seats
 const loungeSlots = [
-  [-1.5, 0.55, 1.35], [0, 0.55, 1.35], [1.5, 0.55, 1.35],
-  [-2.0, 0.55, 0.0], [2.0, 0.55, 0.0],
+  [-1.6, 0.55, 1.35], [0, 0.55, 1.35], [1.6, 0.55, 1.35],
+  [-2.1, 0.55, 0.15], [2.1, 0.55, 0.15],
+  [-1.0, 0.55, -0.6], [1.0, 0.55, -0.6],
 ];
 
 function layoutActors(t) {
   const idle = [];
   for (const name of state.roster) {
-    const a = ensureActor(name);
+    const look = state.looks[name];
+    let a = actors.get(name);
+    if (a && look && a.userData.lookKey !== JSON.stringify(look)) a = rebuildActor(name);
+    a = ensureActor(name);
     if (!a) continue;
     const st = state.status[name] || "idle";
     const room = roomForBot(name);
-    if (st === "idle") idle.push({ name, a, room });
+    const ring = a.userData.avatar.userData.ring;
+    if (ring) ring.material.color.setHex(statusColor(st));
+    const showLabel = state.selected === name || st !== "idle";
+    a.userData.labelEl.className = "label" + (showLabel ? "" : " dim");
+    if (st === "idle") idle.push(a);
     else {
       a.position.lerp(new THREE.Vector3(room.x, 0, room.z), 0.08);
-      a.userData.blob.position.set(0, 0.72 + (st === "working" ? Math.sin(t * 3 + a.userData.bob) * 0.03 : 0), 0.15);
-      a.userData.blob.visible = true;
-      // show desk child
-      a.children[0].visible = true;
+      a.userData.avatar.position.y = 0.78 + (st === "working" ? Math.sin(t * 3 + a.userData.bob) * 0.04 : 0);
     }
   }
-  idle.forEach((item, i) => {
+  idle.forEach((a, i) => {
     const slot = loungeSlots[i % loungeSlots.length];
-    const target = new THREE.Vector3(slot[0], 0, slot[2]);
-    item.a.position.lerp(target, 0.06);
-    item.a.children[0].visible = false; // hide desk while lounging
-    item.a.userData.blob.position.set(0, slot[1] + Math.sin(t * 1.5 + item.a.userData.bob) * 0.02, 0);
+    a.position.lerp(new THREE.Vector3(slot[0], 0, slot[2]), 0.06);
+    a.userData.avatar.position.y = slot[1] + Math.sin(t * 1.4 + a.userData.bob) * 0.025;
   });
 }
 
@@ -351,6 +524,7 @@ function apply(rec) {
   if (!rec || typeof rec !== "object") return;
   if (Array.isArray(rec.roster)) state.roster = rec.roster;
   if (rec.looks) Object.assign(state.looks, rec.looks);
+  if (rec.roomDecor) Object.assign(state.roomDecor, rec.roomDecor);
   if (rec.bot && rec.status) {
     state.status[rec.bot] = rec.status;
     state.step[rec.bot] = rec.step || "";
@@ -366,12 +540,14 @@ function showPanel(name) {
   const panel = document.getElementById("panel");
   if (!name) { panel.classList.remove("open"); return; }
   const st = state.status[name] || "idle";
+  const room = roomForBot(name);
   document.getElementById("pname").textContent = name;
-  document.getElementById("proom").textContent = (roomForBot(name) || {}).title || "";
-  document.getElementById("pstep").textContent = state.step[name] || "";
-  const s = document.getElementById("pstatus");
-  s.className = "status " + st;
-  s.textContent = st === "waiting_user" ? "needs you" : st;
+  document.getElementById("proom").textContent = room ? room.title : "";
+  const decor = (state.roomDecor[name] || []).slice(0, 2).join(" · ");
+  document.getElementById("pstep").textContent = state.step[name] || decor || "Hanging out";
+  const badge = document.getElementById("pstatus");
+  badge.className = "status " + st;
+  badge.textContent = st.replace("_", " ");
   panel.classList.add("open");
 }
 
@@ -379,13 +555,10 @@ const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 function onPointer(ev) {
   const rect = renderer.domElement.getBoundingClientRect();
-  const x = (ev.clientX - rect.left) / rect.width;
-  const y = (ev.clientY - rect.top) / rect.height;
-  pointer.set(x * 2 - 1, -(y * 2 - 1));
+  pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(pointer, camera);
-  const meshes = [];
-  actors.forEach(a => a.traverse(o => { if (o.isMesh) meshes.push(o); }));
-  const hits = raycaster.intersectObjects(meshes, false);
+  const hits = raycaster.intersectObjects([...actors.values()], true);
   if (!hits.length) { state.selected = null; showPanel(null); return; }
   let obj = hits[0].object;
   while (obj && !(obj.userData && obj.userData.name)) obj = obj.parent;
@@ -394,9 +567,10 @@ function onPointer(ev) {
     showPanel(state.selected);
   }
 }
-renderer.domElement.addEventListener("click", onPointer);
+renderer.domElement.addEventListener("pointerdown", onPointer);
 
 async function bootstrap() {
+  for (const n of state.roster) ensureActor(n);
   try {
     const res = await fetch(FEED + "/json?poll=1");
     const text = await res.text();
@@ -410,7 +584,6 @@ async function bootstrap() {
     for (const n of state.roster) ensureActor(n);
     setConn(true, "Live · synced");
   } catch {
-    for (const n of state.roster) ensureActor(n);
     setConn(false, "Could not load history");
   }
 }
@@ -440,8 +613,7 @@ addEventListener("resize", () => {
 const clock = new THREE.Clock();
 function animate() {
   requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
-  layoutActors(t);
+  layoutActors(clock.getElapsedTime());
   controls.update();
   renderer.render(scene, camera);
   labelRenderer.render(scene, camera);
